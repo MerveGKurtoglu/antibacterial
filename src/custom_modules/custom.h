@@ -90,5 +90,6 @@ void custom_function( Cell* pCell, Phenotype& phenotype , double dt );
 
 void contact_function( Cell* pMe, Phenotype& phenoMe , Cell* pOther, Phenotype& phenoOther , double dt ); 
 
-void chemo_phenotype( Cell* pCell, Phenotype& phenotype, double dt);
+void chemo_phenotype( Cell* pCell, Phenotype& p , double dt);
 
+void update_electrical_potential ( BioFVM::Microenvironment& Microenvironment, std::string filename );

@@ -105,18 +105,18 @@ void create_cell_types( void )
 	   This is a good place to set custom functions. 
 	*/ 
 	
-	
+    
 	cell_defaults.functions.update_phenotype = phenotype_function; 
 	cell_defaults.functions.custom_cell_rule = custom_function; 
 	cell_defaults.functions.contact_function = contact_function; 
-
-	Cell_Definition* pPseudomonas= find_cell_definition( "Pseudomonas Aeruginosa" ); 
-	Cell_Definition* pStaphylococcus= find_cell_definition( "Staphylococcus Aureus" ); 
 	
-	cell_defaults.functions.update_phenotype= chemo_phenotype; 
-	cell_defaults.functions.update_phenotype= chemo_phenotype; 
+    Cell_Definition* pPseudomonas = find_cell_definition( "Pseudomonas Aeruginosa" ); 
+	Cell_Definition* pStaphylococcus = find_cell_definition( "Staphylococcus Aureus" ); 
 	
-
+	pPseudomonas->functions.update_phenotype = chemo_phenotype; 
+	pStaphylococcus->functions.update_phenotype = chemo_phenotype; 
+	
+    
 	/*
 	   This builds the map of cell definitions and summarizes the setup. 
 	*/
@@ -200,7 +200,6 @@ void custom_function( Cell* pCell, Phenotype& phenotype , double dt )
 void contact_function( Cell* pMe, Phenotype& phenoMe , Cell* pOther, Phenotype& phenoOther , double dt )
 { return; } 
 
-
 void chemo_phenotype( Cell* pCell, Phenotype& p , double dt)
 {
 	// sample environment 
@@ -208,54 +207,104 @@ void chemo_phenotype( Cell* pCell, Phenotype& p , double dt)
 	double c1 = pCell->nearest_density_vector()[nQF1]; 
 	static int nQF2 = microenvironment.find_density_index( "quorum factor 2" ); 
 	double c2 = pCell->nearest_density_vector()[nQF2]; 
-
+    
 	// Hill parameters 
 	double hill = pCell->custom_data["Hill_coefficient"];  
-	double c_half_max= pCell->custom_data["PD_half_max"]; 
-	
-	// apoptosis baseline and max 
+	double c_half_max = pCell->custom_data["PD_half_max"]; 
+
+    
+	// apoptosis, secretion baseline and max 
 	Cell_Definition* pCD = find_cell_definition( pCell->type ); 
 	double base_apop = pCD->phenotype.death.rates[0]; 
 	double max_apop = pCell->custom_data["PD_max_apoptosis"]; 
+	double base_secretion = pCD->phenotype.secretion.secretion_rates[1];
 	
 	// effect 
 	double temp1_1 = pow(c1,hill); 
 	double temp2_1 = pow(c_half_max,hill); 
-	double E1 = temp1_1 / (temp1_1+temp2_1) * 0.5; 
+	double E1 = temp1_1 / (temp1_1+temp2_1); 
 
 	double temp1_2 = pow(c2,hill); 
 	double temp2_2 = pow(c_half_max,hill); 
-	double E2 = temp1_2 / (temp1_2+temp2_2) * 0.5; 
+	double E2 = temp1_2 / (temp1_2+temp2_2); 
 
 	static Cell_Definition* pPseudomonas= find_cell_definition( "Pseudomonas Aeruginosa"); 
 	static Cell_Definition* pStaphylococcus = find_cell_definition( "Staphylococcus Aureus"); 
 
-	
-	if(pCell->type_name == "Pseudomonas Aeruginosa")
-	{
-		pCell->phenotype.death.rates[0] = base_apop / (E1);
-		if(pCell->phenotype.death.rates[0] > 0.1)
-		{
-			pCell->phenotype.death.rates[0] = 0.1;
-		}
+    // potential
+    static int nPot = microenvironment.find_density_index( "electrical_potential" );
+    double p1 = pCell->nearest_density_vector()[nPot];
+    double pot_thr = pCell->custom_data["potential_threshold"];
 
-		pCell->phenotype.secretion.secretion_rates[0] = pCell->phenotype.secretion.secretion_rates[0] * E1;
+	double temp1 = pow(abs(p1), 10);
+	double temp2 = pow(0.035,10); 
+	double E = temp1 / (temp1 + temp2);
+
+	//pCell->phenotype.death.rates[0] /= (1-E);
+
+	if(pCD->name == "Pseudomonas Aeruginosa")
+	{
+		pCell->phenotype.death.rates[0] = base_apop / E1;
+		//pCell->phenotype.secretion.secretion_rates[1] = base_secretion * (1-E);
 	}
 
-	if(pCell->type_name == "Staphylococcus Aureus")
+	if(pCD->name == "Staphylococcus Aureus")
 	{
-		pCell->phenotype.death.rates[0] = base_apop / (E2 / 5);
-		if(pCell->phenotype.death.rates[0] > 0.5)
-		{
-			pCell->phenotype.death.rates[0] = 0.5;
-		}
-
-		pCell->phenotype.secretion.secretion_rates[0] = pCell->phenotype.secretion.secretion_rates[0] * E2;
+		pCell->phenotype.death.rates[0] = base_apop / E2;
+		//pCell->phenotype.secretion.secretion_rates[2] = base_secretion * (1-E);
 	}
 
+	if(abs(p1) > pot_thr)
+	{
+		pCell->phenotype.death.rates[0] = 0.1;
+	}
+	
 
-	
-	
-	
 	return; 
 	}
+
+void update_electrical_potential ( BioFVM::Microenvironment& Microenvironment, std::string filename )
+{ 
+    std::ifstream file( filename, std::ios::in );
+
+	std::string line;
+    int counter = 0;
+    while (std::getline(file, line))
+	{
+		std::vector<double> data;
+		csv_to_vector( line.c_str() , data ); 
+
+        //std::cout << "TEST" << counter << std::endl;
+		std::vector<double> position = { data[0]*1000 , data[1]*1000  , data[2]*1000 };
+
+		double volt = (double) data[3]; 
+        
+        int voxel_ind = microenvironment.nearest_voxel_index ( position );
+        
+        microenvironment(voxel_ind)[0] = volt;
+        
+        //std::cout << microenvironment(voxel_ind)[1] << std::endl;
+        counter += 1;
+        std::cout << counter << std::endl;
+	}
+//	for( int n = 0; n < microenvironment.mesh.voxels.size() ; n++ )
+	//{
+      
+		// csv or mat file input
+      
+
+
+        // std::vector<std::vector> data
+        // data = csv.input() 
+        
+  //      microenvironment(n)[1] = 1.0;
+        
+		//std::cout << microenvironment.mesh.voxels.size() <<std::endl;
+		
+//	}
+    
+
+
+
+    return; 
+}

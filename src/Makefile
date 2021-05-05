@@ -249,4 +249,7 @@ upgrade: $(SOURCE)
 	unzip $(SOURCE) PhysiCell/documentation/User_Guide.pdf
 	mv -f PhysiCell/documentation/User_Guide.pdf documentation
 	rm -f -r PhysiCell
-	rm -f $(SOURCE) 
+	rm -f $(SOURCE)
+    
+animation:
+	cd output;magick mogrify -format jpg snapshot*.svg;magick snapshot*.jpg animation.gif
